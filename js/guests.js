@@ -19,14 +19,14 @@ export const guests = (() => {
         '',
         "Assalamu'alaikum Wr. Wb.",
         '',
-        'Dengan memohon rahmat dan ridha Allah SWT, kami bermaksud mengundang Bapak/Ibu/Saudara/i untuk menghadiri acara pernikahan kami (Usra & Siapa). Detail undangan dapat dilihat melalui tautan berikut:',
+        'Dengan memohon rahmat dan ridha Allah SWT, kami bermaksud mengundang Bapak/Ibu/Saudara/i untuk menghadiri acara pernikahan kami (Usra & Zee). Detail undangan dapat dilihat melalui tautan berikut:',
         '',
         link,
         '',
         'Merupakan suatu kehormatan bagi kami apabila Bapak/Ibu/Saudara/i berkenan hadir. Terima kasih.',
         '',
         "Wassalamu'alaikum Wr. Wb.",
-        'Usra & Siapa',
+        'Usra & Zee',
     ].join('\n');
 
     const normalizePhone = (raw) => {
