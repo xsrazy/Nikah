@@ -1,81 +1,24 @@
 import { guest } from './guest.js';
 
+// The loading screen was removed by request of the site owner: the page now
+// opens straight to the welcome cover. This module stays as a no-op with the
+// same API so app.js and guest.js keep working unchanged; init() only hands
+// over to guest.name() right away (guest name + form prefill).
 export const progress = (() => {
 
-    /**
-     * @type {HTMLElement|null}
-     */
-    let info = null;
+    let done = false;
 
-    /**
-     * @type {HTMLElement|null}
-     */
-    let bar = null;
-
-    let total = 0;
-    let loaded = 0;
-    let valid = true;
-    let push = true;
-
-    const onComplete = () => {
+    const init = () => {
+        if (done) {
+            return;
+        }
+        done = true;
         guest.name();
     };
 
-    const add = () => {
-        if (!push) {
-            return;
-        }
-
-        total += 1;
-    };
-
-    const complete = (type) => {
-        if (!valid) {
-            return;
-        }
-
-        loaded += 1;
-        bar.style.width = Math.min((loaded / total) * 100, 100).toString() + '%';
-        info.innerText = `Loading ${type} complete (${loaded}/${total}) [${parseInt((loaded / total) * 100).toFixed(0)}%]`;
-
-        if (loaded === total) {
-            onComplete();
-        }
-    };
-
-    const invalid = (type) => {
-        info.innerText = `Error loading ${type} (${loaded}/${total}) [${parseInt((loaded / total) * 100).toFixed(0)}%]`;
-        bar.style.backgroundColor = 'red';
-        valid = false;
-    };
-
-    const run = async () => {
-        document.querySelectorAll('img').forEach((asset) => {
-            // A broken decorative image must never block the invitation from
-            // opening: count image errors as complete instead of invalid.
-            asset.onerror = () => {
-                complete('image');
-            };
-            asset.onload = () => {
-                complete('image');
-            };
-
-            if (asset.complete) {
-                complete('image');
-            }
-        });
-    };
-
-    const init = () => {
-        document.querySelectorAll('img').forEach(add);
-
-        info = document.getElementById('progress-info');
-        bar = document.getElementById('progress-bar');
-        info.style.display = 'block';
-
-        push = false;
-        run();
-    };
+    const add = () => { };
+    const complete = () => { };
+    const invalid = () => { };
 
     return {
         init,

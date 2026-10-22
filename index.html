@@ -80,7 +80,7 @@
     <link rel="shortcut icon" type="image/x-icon" href="./assets/favicon.ico">
     <link rel="icon" type="image/png" sizes="192x192" href="./assets/images/icon-192x192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="./assets/images/icon-512x512.png">
-    <link rel="apple-touch-icon" sizes="192x192" href="./assets/images/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="./assets/images/apple-touch-icon.png">
 
     <!-- Preconnect CDN -->
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
@@ -596,28 +596,6 @@
     <button type="button" id="button-music" style="display: none; bottom: 9vh;" class="btn bg-dark border btn-sm rounded-circle btn-float position-fixed" data-url="./assets/music/sound.mp3" offline-disabled>
         <i class="fa-solid fa-circle-pause spin-button"></i>
     </button>
-
-    <!-- Loading Page -->
-    <div class="loading-page bg-black" id="loading" style="opacity: 1;">
-        <div class="d-flex justify-content-center align-items-center" style="height: 100vh !important;">
-            <div class="w-75 text-center">
-                <img class="img-fluid mb-3" src="./assets/images/icon-192x192.png" alt="icon" style="width: 3.5rem;">
-                <div class="progress" role="progressbar" style="height: 0.5rem;">
-                    <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
-                </div>
-                <small class="mt-1 text-light" id="progress-info" style="display: none;">Loading</small>
-                <noscript>
-                    <small class="mt-1 text-danger">Sorry, this invitation requires javascript to work</small>
-                </noscript>
-            </div>
-        </div>
-        <div class="text-center position-fixed w-100" style="bottom: 8%; left: 0;">
-            <div class="d-flex flex-column">
-                <small class="text-secondary">from</small>
-                <small class="text-light"><i class="fa-brands fa-github me-1"></i>xsrazy</small>
-            </div>
-        </div>
-    </div>
 
     <!-- Offline -->
     <div class="fixed-top" id="offline-mode" style="opacity: 0; z-index: 1057;"></div>

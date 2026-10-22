@@ -16,6 +16,9 @@ export const guest = (() => {
      */
     const opacity = (id, speed = 0.01) => {
         const el = document.getElementById(id);
+        if (!el) {
+            return;
+        }
         let op = parseFloat(el.style.opacity);
 
         let clear = null;
@@ -103,7 +106,9 @@ export const guest = (() => {
         let name = null;
 
         if (raw.length >= 2 && raw[1].length > 0) {
-            name = decodeURIComponent(raw[1]);
+            // Guest links encode spaces as '+' (see guests.js); decodeURIComponent
+            // alone leaves them as literal plus signs, so convert first.
+            name = decodeURIComponent(raw[1].replace(/\+/g, ' '));
 
             const guest = document.getElementById('guest-name');
             if (guest) {
