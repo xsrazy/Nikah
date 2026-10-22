@@ -51,7 +51,9 @@ export const guest = (() => {
         const count = (new Date(until)).getTime();
 
         setInterval(() => {
-            const distance = Math.abs(count - Date.now());
+            // Clamp at zero after the date (audit fix): Math.abs used to
+            // make the counter climb forever once the day had passed.
+            const distance = Math.max(0, count - Date.now());
 
             document.getElementById('day').innerText = Math.floor(distance / (1000 * 60 * 60 * 24));
             document.getElementById('hour').innerText = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
@@ -102,13 +104,18 @@ export const guest = (() => {
     };
 
     const name = () => {
-        const raw = window.location.search.split('to=');
+        // Parse the guest name with URLSearchParams (audit fix): extra
+        // parameters (fbclid and friends) no longer pollute the name, and
+        // malformed percent sequences can no longer throw and kill every
+        // later init step on the page.
         let name = null;
+        try {
+            name = new URLSearchParams(window.location.search).get('to');
+        } catch {
+            name = null;
+        }
 
-        if (raw.length >= 2 && raw[1].length > 0) {
-            // Guest links encode spaces as '+' (see guests.js); decodeURIComponent
-            // alone leaves them as literal plus signs, so convert first.
-            name = decodeURIComponent(raw[1].replace(/\+/g, ' '));
+        if (name) {
 
             const guest = document.getElementById('guest-name');
             if (guest) {
@@ -134,13 +141,16 @@ export const guest = (() => {
         button.disabled = true;
         document.body.scrollIntoView({ behavior: 'instant' });
 
-        confetti({
-            origin: { y: 1 },
-            zIndex: 1057
-        });
+        if (typeof confetti === 'function') {
+            confetti({
+                origin: { y: 1 },
+                zIndex: 1057
+            });
+        }
 
         opacity('welcome', 0.025);
 
+        audio.markOpened();
         audio.play();
         audio.showButton();
 
@@ -164,9 +174,11 @@ export const guest = (() => {
             storage('user').clear();
             storage('owns').clear();
             storage('likes').clear();
-            storage('session').clear();
             storage('comment').clear();
             storage('tracker').clear();
+            // The 'session' table is deliberately NOT cleared (audit fix):
+            // previewing the invitation used to log the admin out and
+            // crash the next dashboard action on a null token.
         }
 
         const presence = information.get('presence');

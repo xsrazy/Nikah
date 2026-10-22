@@ -1,4 +1,4 @@
-const { loadDB, getAuth, send, sendError } = require('./_lib');
+const { loadDB, getAuth, send, sendError, fail } = require('./_lib');
 
 module.exports = async (req, res) => {
     if (req.method !== 'GET') {
@@ -17,6 +17,6 @@ module.exports = async (req, res) => {
             can_delete: s.can_delete,
         });
     } catch (err) {
-        return sendError(res, 500, err.message);
+        return fail(res, err);
     }
 };

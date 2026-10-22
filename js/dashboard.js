@@ -8,12 +8,6 @@ import { comment } from './comment.js';
 import { pagination } from './pagination.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-    theme.init();
-    admin.init();
-    guests.init();
-    offline.init();
-    pagination.init();
-
     window.util = util;
     window.like = like;
     window.admin = admin;
@@ -21,4 +15,19 @@ document.addEventListener('DOMContentLoaded', () => {
     window.guests = guests;
     window.comment = comment;
     window.pagination = pagination;
+
+    // Isolate init failures (audit fix), same as the invitation page.
+    const safeInit = (fn) => {
+        try {
+            fn();
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    safeInit(() => theme.init());
+    safeInit(() => admin.init());
+    safeInit(() => guests.init());
+    safeInit(() => offline.init());
+    safeInit(() => pagination.init());
 });

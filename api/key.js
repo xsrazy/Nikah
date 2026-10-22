@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { loadDB, saveDB, getAuth, send, sendError } = require('./_lib');
+const { loadDB, withDB, noSave, getAuth, send, sendError, fail } = require('./_lib');
 
 module.exports = async (req, res) => {
     if (req.method !== 'PUT') {
@@ -11,10 +11,16 @@ module.exports = async (req, res) => {
         if (!auth || !auth.admin) {
             return sendError(res, 401, 'Unauthorized');
         }
-        db.settings.access_key = crypto.randomBytes(24).toString('hex');
-        await saveDB(db);
+        await withDB(async (fresh) => {
+            const innerAuth = getAuth(req, fresh);
+            if (!innerAuth || !innerAuth.admin) {
+                return noSave(false);
+            }
+            fresh.settings.access_key = crypto.randomBytes(24).toString('hex');
+            return true;
+        });
         return send(res, 200, { status: true });
     } catch (err) {
-        return sendError(res, 500, err.message);
+        return fail(res, err);
     }
 };

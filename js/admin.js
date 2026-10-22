@@ -21,11 +21,11 @@ export const admin = (() => {
             }
 
             document.getElementById('dashboard-name').innerHTML = `${util.escapeHtml(res.data.name)}<i class="fa-solid fa-hands text-warning ms-2"></i>`;
-            document.getElementById('dashboard-email').innerHTML = res.data.email;
+            document.getElementById('dashboard-email').textContent = res.data.email;
             document.getElementById('dashboard-accesskey').value = res.data.access_key;
             document.getElementById('button-copy-accesskey').setAttribute('data-copy', res.data.access_key);
 
-            document.getElementById('form-name').value = util.escapeHtml(res.data.name);
+            document.getElementById('form-name').value = res.data.name;
             document.getElementById('filterBadWord').checked = Boolean(res.data.is_filter);
             document.getElementById('replyComment').checked = Boolean(res.data.can_reply);
             document.getElementById('editComment').checked = Boolean(res.data.can_edit);
@@ -43,53 +43,61 @@ export const admin = (() => {
     const changeFilterBadWord = async (checkbox) => {
         const label = util.addLoadingCheckbox(checkbox);
 
-        await request(HTTP_PATCH, '/api/user').
-            token(session.getToken()).
-            body({
-                filter: Boolean(checkbox.checked)
-            }).
-            send();
-
-        label.restore();
+        try {
+            await request(HTTP_PATCH, '/api/user').
+                token(session.getToken()).
+                body({
+                    filter: Boolean(checkbox.checked)
+                }).
+                send();
+        } finally {
+            label.restore();
+        }
     };
 
     const replyComment = async (checkbox) => {
         const label = util.addLoadingCheckbox(checkbox);
 
-        await request(HTTP_PATCH, '/api/user').
-            token(session.getToken()).
-            body({
-                can_reply: Boolean(checkbox.checked)
-            }).
-            send();
-
-        label.restore();
+        try {
+            await request(HTTP_PATCH, '/api/user').
+                token(session.getToken()).
+                body({
+                    can_reply: Boolean(checkbox.checked)
+                }).
+                send();
+        } finally {
+            label.restore();
+        }
     };
 
     const editComment = async (checkbox) => {
         const label = util.addLoadingCheckbox(checkbox);
 
-        await request(HTTP_PATCH, '/api/user').
-            token(session.getToken()).
-            body({
-                can_edit: Boolean(checkbox.checked)
-            }).
-            send();
-
-        label.restore();
+        try {
+            await request(HTTP_PATCH, '/api/user').
+                token(session.getToken()).
+                body({
+                    can_edit: Boolean(checkbox.checked)
+                }).
+                send();
+        } finally {
+            label.restore();
+        }
     };
 
     const deleteComment = async (checkbox) => {
         const label = util.addLoadingCheckbox(checkbox);
 
-        await request(HTTP_PATCH, '/api/user').
-            token(session.getToken()).
-            body({
-                can_delete: Boolean(checkbox.checked)
-            }).
-            send();
-
-        label.restore();
+        try {
+            await request(HTTP_PATCH, '/api/user').
+                token(session.getToken()).
+                body({
+                    can_delete: Boolean(checkbox.checked)
+                }).
+                send();
+        } finally {
+            label.restore();
+        }
     };
 
     const regenerate = async (button) => {
@@ -99,16 +107,18 @@ export const admin = (() => {
 
         const btn = util.disableButton(button);
 
-        await request(HTTP_PUT, '/api/key').
-            token(session.getToken()).
-            send(dto.statusResponse).
-            then((res) => {
-                if (res.data.status) {
-                    getUserDetail();
-                }
-            });
-
-        btn.restore();
+        try {
+            await request(HTTP_PUT, '/api/key').
+                token(session.getToken()).
+                send(dto.statusResponse).
+                then((res) => {
+                    if (res.data.status) {
+                        getUserDetail();
+                    }
+                });
+        } finally {
+            btn.restore();
+        }
     };
 
     const changePassword = async (button) => {

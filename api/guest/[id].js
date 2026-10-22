@@ -1,4 +1,4 @@
-const { loadDB, saveDB, getAuth, send, sendError } = require('../_lib');
+const { loadDB, withDB, noSave, getAuth, send, sendError, fail } = require('../_lib');
 
 // DELETE /api/guest/:id (admin only) -> { status }
 module.exports = async (req, res) => {
@@ -12,14 +12,16 @@ module.exports = async (req, res) => {
             return sendError(res, 401, 'Unauthorized');
         }
         const id = req.query.id;
-        const before = db.guests.length;
-        db.guests = db.guests.filter((g) => g.id !== id);
-        if (db.guests.length === before) {
-            return send(res, 200, { status: false });
-        }
-        await saveDB(db);
-        return send(res, 200, { status: true });
+        const status = await withDB(async (fresh) => {
+            const before = fresh.guests.length;
+            fresh.guests = fresh.guests.filter((g) => g.id !== id);
+            if (fresh.guests.length === before) {
+                return noSave(false);
+            }
+            return true;
+        });
+        return send(res, 200, { status });
     } catch (err) {
-        return sendError(res, 500, err.message);
+        return fail(res, err);
     }
 };

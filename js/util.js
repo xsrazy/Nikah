@@ -111,7 +111,14 @@ export const util = (() => {
     const base64Encode = (str) => {
         const encoder = new TextEncoder();
         const encodedBytes = encoder.encode(str);
-        return btoa(String.fromCharCode(...encodedBytes));
+        // Chunked conversion (audit fix): spreading a huge byte array into
+        // String.fromCharCode throws RangeError on very long comments.
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < encodedBytes.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, encodedBytes.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
     };
 
     /**

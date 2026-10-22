@@ -82,7 +82,11 @@ export const session = (() => {
         }
 
         try {
-            return JSON.parse(window.atob(getToken().split('.')[1]));
+            // JWT segments are base64url; convert before atob (audit fix:
+            // raw atob threw on '-'/'_' and valid tokens were discarded).
+            const segment = getToken().split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            const padded = segment + '='.repeat((4 - (segment.length % 4)) % 4);
+            return JSON.parse(window.atob(padded));
         } catch {
             return null;
         }

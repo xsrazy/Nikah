@@ -112,7 +112,7 @@ export const card = (() => {
         const text = theme.isDarkMode('light', 'dark');
         return `
         <div class="p-2 my-2 rounded-3 border">
-            <p class="text-${text} mb-1 mx-0 mt-0 p-0" style="font-size: 0.7rem;" id="ip-${comment.uuid}"><i class="fa-solid fa-location-dot me-1"></i>${util.escapeHtml(comment.ip)} ${tracker.has(comment.ip) ? `<strong>${tracker.get(comment.ip)}</strong>` : `<span class="mb-1 placeholder col-2 rounded-3"></span>`}</p>
+            <p class="text-${text} mb-1 mx-0 mt-0 p-0" style="font-size: 0.7rem;" id="ip-${comment.uuid}"><i class="fa-solid fa-location-dot me-1"></i>${util.escapeHtml(comment.ip)} ${tracker.has(comment.ip) ? `<strong>${util.escapeHtml(tracker.get(comment.ip))}</strong>` : `<span class="mb-1 placeholder col-2 rounded-3"></span>`}</p>
             <p class="text-${text} m-0 p-0" style="font-size: 0.7rem;"><i class="fa-solid fa-mobile-screen-button me-1"></i>${util.escapeHtml(comment.user_agent)}</p>
         </div>`;
     };
@@ -124,7 +124,10 @@ export const card = (() => {
             return `class="bg-theme-${btn} shadow p-3 mx-0 mt-0 mb-3 rounded-4" data-parent="true"`;
         }
 
-        return `class="${!showHide.get('hidden').find((item) => item.uuid === comment.uuid)['show'] ? 'd-none' : ''} overflow-x-scroll mw-100 border-start bg-theme-${btn} py-2 ps-2 pe-0 my-2 ms-2 me-0"`;
+        // Guard the show/hide lookup (audit fix): a missing entry used
+        // to crash the whole comment render.
+        const entry = showHide.get('hidden').find((item) => item.uuid === comment.uuid);
+        return `class="${entry && !entry.show ? 'd-none' : ''} overflow-x-scroll mw-100 border-start bg-theme-${btn} py-2 ps-2 pe-0 my-2 ms-2 me-0"`;
     };
 
     const renderTitle = (comment, is_parent) => {

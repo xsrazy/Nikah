@@ -47,8 +47,12 @@ export const request = (method, path) => {
                     });
                 })
                 .catch((err) => {
-                    alert(err);
-                    throw new Error(err);
+                    if (err instanceof TypeError) {
+                        alert('Koneksi bermasalah, silakan coba lagi.');
+                    } else {
+                        alert(err.message ?? err);
+                    }
+                    throw err;
                 });
         },
         /**
@@ -85,8 +89,12 @@ export const request = (method, path) => {
                     });
                 })
                 .catch((err) => {
-                    alert(err);
-                    throw new Error(err);
+                    if (err instanceof TypeError) {
+                        alert('Koneksi bermasalah, silakan coba lagi.');
+                    } else {
+                        alert(err.message ?? err);
+                    }
+                    throw err;
                 });
         },
         /**
@@ -94,7 +102,7 @@ export const request = (method, path) => {
          * @returns {this}
          */
         token(token) {
-            if (token.split('.').length === 3) {
+            if (token && token.split('.').length === 3) {
                 req.headers.append('Authorization', 'Bearer ' + token);
                 return this;
             }

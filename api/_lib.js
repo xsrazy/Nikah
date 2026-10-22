@@ -26,18 +26,61 @@ async function blobListVersions() {
         .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
 }
 
-async function blobReadLatest() {
+const defaultDB = () => ({
+    settings: {
+        name: 'Usra',
+        email: process.env.ADMIN_EMAIL || '',
+        password: hashPassword(process.env.ADMIN_PASSWORD || ''),
+        access_key: process.env.INITIAL_ACCESS_KEY || crypto.randomBytes(24).toString('hex'),
+        is_filter: false,
+        can_reply: true,
+        can_edit: true,
+        can_delete: true,
+        token_version: 0,
+    },
+    comments: [],
+    guests: [],
+});
+
+// Loads the DB together with the pathname of the version it came from.
+// Safety contract (audit fix): a transient Blob failure must NEVER be
+// mistaken for an empty database. The default DB is only used when the
+// store genuinely contains no versions; read/parse failures of existing
+// versions throw, so a following write can never persist an empty DB
+// over real data. If the newest version is corrupt, the previous one is
+// tried before giving up.
+async function loadDBVersioned() {
     const versions = await blobListVersions();
-    for (const blob of versions) {
-        const res = await fetch(blob.url, {
-            headers: { ...blobHeaders(), 'cache-control': 'no-cache' },
-            cache: 'no-store',
-        });
-        if (res.ok) {
-            return res.text();
+    if (versions.length === 0) {
+        return { db: defaultDB(), version: null };
+    }
+    let lastErr = null;
+    for (const blob of versions.slice(0, 3)) {
+        try {
+            const res = await fetch(blob.url, {
+                headers: { ...blobHeaders(), 'cache-control': 'no-cache' },
+                cache: 'no-store',
+            });
+            if (!res.ok) {
+                throw new Error(`blob get failed: ${res.status}`);
+            }
+            const db = JSON.parse(await res.text());
+            if (!db.settings || !Array.isArray(db.comments)) {
+                throw new Error('db shape invalid');
+            }
+            if (!Array.isArray(db.guests)) {
+                db.guests = [];
+            }
+            return { db, version: blob.pathname };
+        } catch (err) {
+            lastErr = err;
         }
     }
-    return null;
+    throw lastErr || new Error('db unreadable');
+}
+
+async function loadDB() {
+    return (await loadDBVersioned()).db;
 }
 
 async function blobWriteVersion(text) {
@@ -54,7 +97,9 @@ async function blobWriteVersion(text) {
         body: text,
     });
     if (!res.ok) {
-        throw new Error(`blob put failed: ${res.status} ${await res.text()}`);
+        // Do not embed the upstream response body: it would leak to API
+        // callers through error messages.
+        throw new Error(`blob put failed: ${res.status}`);
     }
     return res.json();
 }
@@ -63,58 +108,17 @@ async function blobDelete(urls) {
     if (urls.length === 0) {
         return;
     }
-    await fetch(`${BLOB_API}delete`, {
-        method: 'POST',
-        headers: { ...blobHeaders(), 'content-type': 'application/json' },
-        body: JSON.stringify({ urls }),
-    }).catch(() => null);
-}
-
-// ---------- database ----------
-
-const hashPassword = (password, salt = crypto.randomBytes(8).toString('hex')) =>
-    `${salt}:${crypto.createHash('sha256').update(salt + password).digest('hex')}`;
-
-const verifyPassword = (password, stored) => {
-    const [salt, hash] = String(stored || '').split(':');
-    if (!salt || !hash) {
-        return false;
-    }
-    const check = crypto.createHash('sha256').update(salt + password).digest('hex');
-    return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(check));
-};
-
-const defaultDB = () => ({
-    settings: {
-        name: 'Usra',
-        email: process.env.ADMIN_EMAIL || '',
-        password: hashPassword(process.env.ADMIN_PASSWORD || ''),
-        access_key: process.env.INITIAL_ACCESS_KEY || crypto.randomBytes(24).toString('hex'),
-        is_filter: false,
-        can_reply: true,
-        can_edit: true,
-        can_delete: true,
-    },
-    comments: [],
-    guests: [],
-});
-
-async function loadDB() {
-    const text = await blobReadLatest();
-    if (!text) {
-        return defaultDB();
-    }
     try {
-        const db = JSON.parse(text);
-        if (!db.settings || !Array.isArray(db.comments)) {
-            return defaultDB();
+        const res = await fetch(`${BLOB_API}delete`, {
+            method: 'POST',
+            headers: { ...blobHeaders(), 'content-type': 'application/json' },
+            body: JSON.stringify({ urls }),
+        });
+        if (!res.ok) {
+            console.error(`blob delete failed: ${res.status}`);
         }
-        if (!Array.isArray(db.guests)) {
-            db.guests = [];
-        }
-        return db;
-    } catch {
-        return defaultDB();
+    } catch (err) {
+        console.error(`blob delete failed: ${err.message}`);
     }
 }
 
@@ -127,7 +131,86 @@ const saveDB = async (db) => {
     }
 };
 
+// Serialized read-modify-write with optimistic concurrency (audit fix for
+// the lost-update race): the mutator runs against the newest version; if
+// another writer saved in the meantime, the mutation is re-applied on the
+// fresh version instead of silently overwriting it. The mutator must be
+// re-runnable (it may run more than once) and returns either its result or
+// noSave(value) to finish without writing.
+async function withDB(mutator) {
+    for (let attempt = 0; attempt < 6; attempt++) {
+        const { db, version } = await loadDBVersioned();
+        const result = await mutator(db);
+        if (result && typeof result === 'object' && result.__noSave) {
+            return result.value;
+        }
+        const now = await blobListVersions();
+        const newest = now.length ? now[0].pathname : null;
+        if (newest !== version) {
+            continue; // lost the race; retry on the fresh version
+        }
+        await saveDB(db);
+        return result;
+    }
+    const err = new Error('Sedang sibuk, silakan coba lagi.');
+    err.status = 409;
+    throw err;
+}
+
+const noSave = (value) => ({ __noSave: true, value });
+
+// ---------- passwords ----------
+// New hashes use scrypt. Legacy salted SHA-256 hashes still verify so the
+// stored admin password keeps working; session.js upgrades it to scrypt
+// opportunistically on the next successful login.
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
+
+const hashPassword = (password) => {
+    const salt = crypto.randomBytes(16);
+    const hash = crypto.scryptSync(String(password), salt, 64, SCRYPT_PARAMS);
+    return `scrypt:${salt.toString('hex')}:${hash.toString('hex')}`;
+};
+
+const isLegacyHash = (stored) => !String(stored || '').startsWith('scrypt:');
+
+const verifyPassword = (password, stored) => {
+    const s = String(stored || '');
+    try {
+        if (s.startsWith('scrypt:')) {
+            const [, saltHex, hashHex] = s.split(':');
+            const expected = Buffer.from(hashHex || '', 'hex');
+            if (expected.length !== 64) {
+                return false;
+            }
+            const check = crypto.scryptSync(String(password), Buffer.from(saltHex || '', 'hex'), 64, SCRYPT_PARAMS);
+            return crypto.timingSafeEqual(expected, check);
+        }
+        const [salt, hash] = s.split(':');
+        if (!salt || !hash) {
+            return false;
+        }
+        const expected = Buffer.from(hash, 'hex');
+        const check = crypto.createHash('sha256').update(salt + String(password)).digest();
+        // timingSafeEqual throws on length mismatch; guard instead of
+        // turning a malformed stored hash into a 500 (audit fix).
+        if (expected.length !== check.length) {
+            return false;
+        }
+        return crypto.timingSafeEqual(expected, check);
+    } catch {
+        return false;
+    }
+};
+
 // ---------- auth ----------
+const authSecret = () => {
+    const secret = process.env.AUTH_SECRET;
+    if (!secret) {
+        // Fail closed (audit fix): never fall back to a known string.
+        throw new Error('AUTH_SECRET is not configured');
+    }
+    return secret;
+};
 
 const b64url = (input) =>
     Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -135,7 +218,7 @@ const b64url = (input) =>
 const signToken = (payload) => {
     const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
     const body = b64url(JSON.stringify(payload));
-    const sig = crypto.createHmac('sha256', process.env.AUTH_SECRET || 'dev-secret')
+    const sig = crypto.createHmac('sha256', authSecret())
         .update(`${header}.${body}`).digest('base64')
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     return `${header}.${body}.${sig}`;
@@ -147,9 +230,14 @@ const verifyToken = (token) => {
         return null;
     }
     const [header, body, sig] = parts;
-    const expected = crypto.createHmac('sha256', process.env.AUTH_SECRET || 'dev-secret')
-        .update(`${header}.${body}`).digest('base64')
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    let expected;
+    try {
+        expected = crypto.createHmac('sha256', authSecret())
+            .update(`${header}.${body}`).digest('base64')
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } catch {
+        return null;
+    }
     if (sig.length !== expected.length ||
         !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
         return null;
@@ -166,11 +254,14 @@ const verifyToken = (token) => {
 };
 
 // Returns { admin: payload } or { guest: true } or null.
+// Admin tokens carry a token-version claim (tv); changing the admin
+// password bumps settings.token_version and thereby revokes every token
+// issued before the change (audit fix).
 const getAuth = (req, db) => {
     const auth = req.headers.authorization || '';
     if (auth.startsWith('Bearer ')) {
         const payload = verifyToken(auth.slice(7));
-        if (payload) {
+        if (payload && (payload.tv ?? -1) === (db.settings.token_version ?? 0)) {
             return { admin: payload };
         }
     }
@@ -182,7 +273,6 @@ const getAuth = (req, db) => {
 };
 
 // ---------- http helpers ----------
-
 const send = (res, code, data, httpStatus = code) => {
     res.status(httpStatus).json({ code, data, error: null });
 };
@@ -191,23 +281,79 @@ const sendError = (res, code, message) => {
     res.status(code).json({ code, data: null, error: [message] });
 };
 
+// Uniform failure path for handlers (audit fix): known client errors keep
+// their message; anything else becomes a generic 500 so internal details
+// (upstream bodies, stack text) never leak to callers.
+const fail = (res, err) => {
+    if (err && err.status) {
+        return sendError(res, err.status, err.message);
+    }
+    console.error(err);
+    return sendError(res, 500, 'Terjadi kesalahan pada server.');
+};
+
+const httpError = (status, message) => {
+    const err = new Error(message);
+    err.status = status;
+    return err;
+};
+
 const readBody = async (req) => {
+    let parsed;
     if (req.body !== undefined && req.body !== null) {
-        return typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body;
+        if (typeof req.body === 'string') {
+            try {
+                parsed = req.body ? JSON.parse(req.body) : {};
+            } catch {
+                throw httpError(400, 'Format data tidak valid.');
+            }
+        } else {
+            parsed = req.body;
+        }
+    } else {
+        const chunks = [];
+        for await (const chunk of req) {
+            chunks.push(chunk);
+        }
+        const text = Buffer.concat(chunks).toString('utf8');
+        if (!text) {
+            return {};
+        }
+        try {
+            parsed = JSON.parse(text);
+        } catch {
+            throw httpError(400, 'Format data tidak valid.');
+        }
     }
-    const chunks = [];
-    for await (const chunk of req) {
-        chunks.push(chunk);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw httpError(400, 'Format data tidak valid.');
     }
-    const text = Buffer.concat(chunks).toString('utf8');
-    return text ? JSON.parse(text) : {};
+    return parsed;
+};
+
+// Minimal in-memory rate limiting (audit fix). Serverless instances are
+// ephemeral, so this is a speed bump rather than a hard guarantee, but it
+// stops naive single-source floods and password guessing loops.
+const rateBuckets = new Map();
+const rateLimit = (bucket, limit, windowMs) => {
+    const now = Date.now();
+    const key = String(bucket);
+    let entry = rateBuckets.get(key);
+    if (!entry || now - entry.start > windowMs) {
+        entry = { start: now, count: 0 };
+        rateBuckets.set(key, entry);
+    }
+    entry.count += 1;
+    if (rateBuckets.size > 5000) {
+        rateBuckets.clear();
+    }
+    return entry.count <= limit;
 };
 
 const clientIp = (req) =>
     String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 'unknown';
 
 // ---------- comments ----------
-
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
@@ -227,6 +373,22 @@ const filterBadWords = (text) => {
         out = out.replace(new RegExp(`\\b${word}\\b`, 'gi'), '***');
     }
     return out;
+};
+
+// Strict presence parsing (audit fix): only explicit attend values count
+// as attending; explicit absent values count as absent; anything else is
+// rejected by callers (null return).
+const parsePresence = (value) => {
+    if (value === undefined || value === null) {
+        return true; // template default: attending
+    }
+    if (value === true || value === 1 || value === '1') {
+        return true;
+    }
+    if (value === false || value === 2 || value === '2' || value === 0 || value === '0') {
+        return false;
+    }
+    return null;
 };
 
 const toPublic = (comment, byParent, isAdmin) => {
@@ -252,7 +414,7 @@ const toPublic = (comment, byParent, isAdmin) => {
     return out;
 };
 
-const buildTree = (comments, isAdmin) => {
+const buildTree = (comments) => {
     const byParent = new Map();
     for (const c of comments) {
         const key = c.parent || null;
@@ -269,6 +431,23 @@ const buildTree = (comments, isAdmin) => {
 
 const findComment = (db, uuid) => db.comments.find((c) => c.uuid === uuid) || null;
 const findByOwn = (db, own) => db.comments.find((c) => c.own === own) || null;
+
+// Depth of a comment in the reply tree (root = 0), used to cap nesting.
+const commentDepth = (db, comment) => {
+    let depth = 0;
+    let current = comment;
+    const seen = new Set([current.uuid]);
+    while (current.parent) {
+        const parent = findComment(db, current.parent);
+        if (!parent || seen.has(parent.uuid)) {
+            break;
+        }
+        seen.add(parent.uuid);
+        depth += 1;
+        current = parent;
+    }
+    return depth;
+};
 
 const removeSubtree = (db, uuid) => {
     const targets = new Set([uuid]);
@@ -290,9 +469,10 @@ const countAll = (db) => db.comments.length;
 const countLikes = (db) => db.comments.reduce((n, c) => n + (c.likes || []).length, 0);
 
 module.exports = {
-    loadDB, saveDB, hashPassword, verifyPassword,
+    loadDB, loadDBVersioned, saveDB, withDB, noSave,
+    hashPassword, verifyPassword, isLegacyHash,
     signToken, verifyToken, getAuth,
-    send, sendError, readBody, clientIp,
-    formatDate, filterBadWords, toPublic, buildTree,
-    findComment, findByOwn, removeSubtree, countAll, countLikes,
+    send, sendError, fail, httpError, readBody, rateLimit, clientIp,
+    formatDate, filterBadWords, parsePresence, toPublic, buildTree,
+    findComment, findByOwn, commentDepth, removeSubtree, countAll, countLikes,
 };

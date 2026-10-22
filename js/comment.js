@@ -337,6 +337,14 @@ export const comment = (() => {
                 comments.setAttribute('data-loading', 'false');
 
                 if (res.data.length === 0) {
+                    if (pagination.getNext() > 0) {
+                        // Empty page past the first one (an exactly-full
+                        // last page invited one Next too many): step back
+                        // instead of replacing the list with the empty
+                        // state (audit fix).
+                        return pagination.stepBack().then(() => res);
+                    }
+
                     comments.innerHTML = onNullComment;
                     return res;
                 }
@@ -428,7 +436,7 @@ export const comment = (() => {
                 }
 
                 tracker.set(comment.ip, result);
-                document.getElementById(`ip-${comment.uuid}`).innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${util.escapeHtml(comment.ip)} <strong>${result}</strong>`;
+                document.getElementById(`ip-${comment.uuid}`).innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${util.escapeHtml(comment.ip)} <strong>${util.escapeHtml(result)}</strong>`;
             })
             .catch((err) => {
                 document.getElementById(`ip-${comment.uuid}`).innerHTML = `<i class="fa-solid fa-location-dot me-1"></i>${util.escapeHtml(comment.ip)} <strong>${util.escapeHtml(err.message)}</strong>`;

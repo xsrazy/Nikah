@@ -11,6 +11,7 @@ export const audio = (() => {
     let audio = null;
 
     let isPlay = false;
+    let opened = false;
 
     const statePlay = '<i class="fa-solid fa-circle-pause spin-button"></i>';
     const statePause = '<i class="fa-solid fa-circle-play"></i>';
@@ -32,16 +33,26 @@ export const audio = (() => {
     };
 
     const play = async () => {
+        // Only a 'click' event may start music before the invitation is
+        // opened (offline.js dispatches synthetic online/offline events on
+        // this button): connectivity noise must never start playback, and
+        // a rejected play() must never pop a raw error alert.
+        if (!opened && !isPlay && window.event?.type !== 'click') {
+            return;
+        }
         music.disabled = true;
         try {
             await audio.play();
             isPlay = true;
             music.innerHTML = statePlay;
-        } catch (err) {
+        } catch {
             isPlay = false;
-            alert(err);
         }
         music.disabled = false;
+    };
+
+    const markOpened = () => {
+        opened = true;
     };
 
     const pause = () => {
@@ -58,6 +69,7 @@ export const audio = (() => {
         init,
         play,
         pause,
+        markOpened,
         showButton,
     };
 })();

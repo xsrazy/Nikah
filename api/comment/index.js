@@ -1,22 +1,26 @@
 const crypto = require('crypto');
 const {
-    loadDB, saveDB, getAuth, send, sendError, readBody, clientIp,
-    filterBadWords, toPublic, buildTree, findComment, formatDate,
+    loadDB, withDB, getAuth, send, sendError, fail, httpError, readBody,
+    clientIp, rateLimit, filterBadWords, parsePresence, toPublic, buildTree,
+    findComment, commentDepth, formatDate,
 } = require('../_lib');
+
+const MAX_NAME = 100;
+const MAX_COMMENT = 3000;
+const MAX_DEPTH = 10;
 
 module.exports = async (req, res) => {
     try {
-        const db = await loadDB();
-        const auth = getAuth(req, db);
-        if (!auth) {
-            return sendError(res, 401, 'Invalid access key');
-        }
-        const isAdmin = Boolean(auth.admin);
-
         if (req.method === 'GET') {
+            const db = await loadDB();
+            const auth = getAuth(req, db);
+            if (!auth) {
+                return sendError(res, 401, 'Invalid access key');
+            }
+            const isAdmin = Boolean(auth.admin);
             const per = Math.max(1, Math.min(100, parseInt(req.query.per, 10) || 10));
             const next = Math.max(0, parseInt(req.query.next, 10) || 0);
-            const { roots, byParent } = buildTree(db.comments, isAdmin);
+            const { roots, byParent } = buildTree(db.comments);
             const page = roots.slice(next, next + per).map((c) => toPublic(c, byParent, isAdmin));
             return send(res, 200, page);
         }
@@ -28,55 +32,79 @@ module.exports = async (req, res) => {
             if (name.length === 0) {
                 return sendError(res, 400, 'Silakan masukkan nama Anda.');
             }
+            if (name.length > MAX_NAME) {
+                return sendError(res, 400, 'Nama terlalu panjang.');
+            }
             if (text.length === 0) {
                 return sendError(res, 400, 'Komentar tidak boleh kosong.');
             }
-
+            if (text.length > MAX_COMMENT) {
+                return sendError(res, 400, 'Komentar terlalu panjang.');
+            }
+            const presence = parsePresence(body.presence);
+            if (presence === null) {
+                return sendError(res, 400, 'Konfirmasi kehadiran tidak valid.');
+            }
+            // Throttle guest comment floods (audit fix); admins exempt.
+            const ip = clientIp(req);
             const parentId = body.id ? String(body.id) : null;
-            if (parentId) {
-                if (!db.settings.can_reply && !isAdmin) {
-                    return sendError(res, 403, 'Balasan komentar sedang dimatikan.');
+
+            const payload = await withDB(async (db) => {
+                const auth = getAuth(req, db);
+                if (!auth) {
+                    throw httpError(401, 'Invalid access key');
                 }
-                if (!findComment(db, parentId)) {
-                    return sendError(res, 404, 'Komentar induk tidak ditemukan.');
+                const isAdmin = Boolean(auth.admin);
+                if (!isAdmin && !rateLimit(`comment:${ip}`, 20, 60 * 1000)) {
+                    throw httpError(429, 'Terlalu banyak komentar. Coba lagi nanti.');
                 }
-            }
-
-            if (db.settings.is_filter) {
-                text = filterBadWords(text);
-            }
-
-            const comment = {
-                uuid: crypto.randomUUID(),
-                own: crypto.randomUUID(),
-                parent: parentId,
-                name,
-                presence: body.presence === undefined ? true : Boolean(body.presence),
-                comment: text,
-                is_admin: isAdmin,
-                ip: clientIp(req),
-                user_agent: String(req.headers['user-agent'] || ''),
-                created_at: new Date().toISOString(),
-                likes: [],
-            };
-            db.comments.push(comment);
-            await saveDB(db);
-
-            return send(res, 201, {
-                uuid: comment.uuid,
-                own: comment.own,
-                name: comment.name,
-                presence: comment.presence,
-                comment: comment.comment,
-                is_admin: comment.is_admin,
-                created_at: formatDate(comment.created_at),
-                comments: [],
-                like: { love: 0 },
+                if (parentId) {
+                    if (!db.settings.can_reply && !isAdmin) {
+                        throw httpError(403, 'Balasan komentar sedang dimatikan.');
+                    }
+                    const parent = findComment(db, parentId);
+                    if (!parent) {
+                        throw httpError(404, 'Komentar induk tidak ditemukan.');
+                    }
+                    if (commentDepth(db, parent) + 1 > MAX_DEPTH) {
+                        throw httpError(400, 'Balasan komentar terlalu dalam.');
+                    }
+                }
+                let finalText = text;
+                if (db.settings.is_filter) {
+                    finalText = filterBadWords(finalText);
+                }
+                const comment = {
+                    uuid: crypto.randomUUID(),
+                    own: crypto.randomUUID(),
+                    parent: parentId,
+                    name,
+                    presence,
+                    comment: finalText,
+                    is_admin: isAdmin,
+                    ip,
+                    user_agent: String(req.headers['user-agent'] || ''),
+                    created_at: new Date().toISOString(),
+                    likes: [],
+                };
+                db.comments.push(comment);
+                return {
+                    uuid: comment.uuid,
+                    own: comment.own,
+                    name: comment.name,
+                    presence: comment.presence,
+                    comment: comment.comment,
+                    is_admin: comment.is_admin,
+                    created_at: formatDate(comment.created_at),
+                    comments: [],
+                    like: { love: 0 },
+                };
             });
+            return send(res, 201, payload);
         }
 
         return sendError(res, 405, 'Method not allowed');
     } catch (err) {
-        return sendError(res, 500, err.message);
+        return fail(res, err);
     }
 };

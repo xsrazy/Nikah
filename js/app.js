@@ -9,14 +9,8 @@ import { progress } from './progress.js';
 import { pagination } from './pagination.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-    theme.init();
-    audio.init();
-    guest.init();
-    offline.init();
-    progress.init();
-    pagination.init();
-    window.AOS.init();
-
+    // Assign the globals first and isolate every init (audit fix): one
+    // failing module or CDN script must never disable the whole page.
     window.like = like;
     window.util = util;
     window.guest = guest;
@@ -24,4 +18,24 @@ document.addEventListener('DOMContentLoaded', () => {
     window.audio = audio;
     window.comment = comment;
     window.pagination = pagination;
+
+    const safeInit = (fn) => {
+        try {
+            fn();
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    safeInit(() => theme.init());
+    safeInit(() => audio.init());
+    safeInit(() => guest.init());
+    safeInit(() => offline.init());
+    safeInit(() => progress.init());
+    safeInit(() => pagination.init());
+    safeInit(() => {
+        if (window.AOS) {
+            window.AOS.init();
+        }
+    });
 });

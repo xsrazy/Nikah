@@ -1,4 +1,4 @@
-const { loadDB, getAuth, send, sendError, countAll, countLikes } = require('./_lib');
+const { loadDB, getAuth, send, sendError, fail, countAll, countLikes } = require('./_lib');
 
 module.exports = async (req, res) => {
     if (req.method !== 'GET') {
@@ -18,6 +18,6 @@ module.exports = async (req, res) => {
             absent: topLevel.filter((c) => !c.presence).length,
         });
     } catch (err) {
-        return sendError(res, 500, err.message);
+        return fail(res, err);
     }
 };

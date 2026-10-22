@@ -1,21 +1,22 @@
 const crypto = require('crypto');
 const {
-    loadDB, saveDB, getAuth, send, sendError, readBody, clientIp,
-    filterBadWords, findComment, findByOwn, removeSubtree, formatDate,
+    loadDB, withDB, noSave, getAuth, send, sendError, fail, readBody, clientIp,
+    filterBadWords, parsePresence, findComment, findByOwn, removeSubtree, formatDate,
 } = require('../_lib');
+
+const MAX_COMMENT = 3000;
 
 module.exports = async (req, res) => {
     try {
-        const db = await loadDB();
-        const auth = getAuth(req, db);
-        if (!auth) {
-            return sendError(res, 401, 'Invalid access key');
-        }
-        const isAdmin = Boolean(auth.admin);
         const id = String(req.query.id || '');
 
         // Show one comment (used by the edit form).
         if (req.method === 'GET') {
+            const db = await loadDB();
+            const auth = getAuth(req, db);
+            if (!auth) {
+                return sendError(res, 401, 'Invalid access key');
+            }
             const comment = findComment(db, id);
             if (!comment) {
                 return sendError(res, 404, 'Komentar tidak ditemukan.');
@@ -29,80 +30,112 @@ module.exports = async (req, res) => {
             });
         }
 
-        // Like a comment. The id is the comment's public uuid.
+        // Like a comment. The id is the comment's public uuid. One like per
+        // IP per comment (audit fix): a repeat like returns the existing
+        // like instead of inflating the count.
         if (req.method === 'POST') {
-            const comment = findComment(db, id);
-            if (!comment) {
+            const ip = clientIp(req);
+            const likeUuid = await withDB(async (db) => {
+                const auth = getAuth(req, db);
+                if (!auth) {
+                    return noSave(null);
+                }
+                const comment = findComment(db, id);
+                if (!comment) {
+                    return noSave(undefined);
+                }
+                comment.likes = comment.likes || [];
+                const existing = comment.likes.find((l) => l.ip === ip);
+                if (existing) {
+                    return noSave(existing.uuid);
+                }
+                const like = {
+                    uuid: crypto.randomUUID(),
+                    ip,
+                    created_at: new Date().toISOString(),
+                };
+                comment.likes.push(like);
+                return like.uuid;
+            });
+            if (likeUuid === null) {
+                return sendError(res, 401, 'Invalid access key');
+            }
+            if (likeUuid === undefined) {
                 return sendError(res, 404, 'Komentar tidak ditemukan.');
             }
-            const like = {
-                uuid: crypto.randomUUID(),
-                ip: clientIp(req),
-                created_at: new Date().toISOString(),
-            };
-            comment.likes = comment.likes || [];
-            comment.likes.push(like);
-            await saveDB(db);
-            return send(res, 201, { uuid: like.uuid });
+            return send(res, 201, { uuid: likeUuid });
         }
 
         // Unlike. The id is the like uuid returned when liking.
         if (req.method === 'PATCH') {
-            let removed = false;
-            for (const comment of db.comments) {
-                const idx = (comment.likes || []).findIndex((l) => l.uuid === id);
-                if (idx >= 0) {
-                    comment.likes.splice(idx, 1);
-                    removed = true;
-                    break;
+            const removed = await withDB(async (db) => {
+                const auth = getAuth(req, db);
+                if (!auth) {
+                    return noSave(null);
                 }
-            }
-            if (removed) {
-                await saveDB(db);
+                for (const comment of db.comments) {
+                    const idx = (comment.likes || []).findIndex((l) => l.uuid === id);
+                    if (idx >= 0) {
+                        comment.likes.splice(idx, 1);
+                        return true;
+                    }
+                }
+                return noSave(false);
+            });
+            if (removed === null) {
+                return sendError(res, 401, 'Invalid access key');
             }
             return send(res, 200, { status: removed });
         }
 
-        // Edit / delete resolve by the secret "own" token; admins may use the public uuid.
-        const target = findByOwn(db, id) || (isAdmin ? findComment(db, id) : null);
-
-        if (req.method === 'PUT') {
-            if (!target) {
-                return send(res, 200, { status: false });
+        if (req.method === 'PUT' || req.method === 'DELETE') {
+            const body = req.method === 'PUT' || req.method === 'DELETE' ? await readBody(req).catch(() => ({})) : {};
+            const status = await withDB(async (db) => {
+                const auth = getAuth(req, db);
+                if (!auth) {
+                    return noSave(null);
+                }
+                const isAdmin = Boolean(auth.admin);
+                // Edit / delete resolve by the secret "own" token; admins
+                // may use the public uuid.
+                const target = findByOwn(db, id) || (isAdmin ? findComment(db, id) : null);
+                if (!target) {
+                    return noSave(false);
+                }
+                if (req.method === 'PUT') {
+                    if (!db.settings.can_edit && !isAdmin) {
+                        return noSave(false);
+                    }
+                    let text = String(body.comment ?? target.comment).trim();
+                    if (text.length === 0 || text.length > MAX_COMMENT) {
+                        return noSave(false);
+                    }
+                    if (db.settings.is_filter) {
+                        text = filterBadWords(text);
+                    }
+                    target.comment = text;
+                    if (body.presence !== null && body.presence !== undefined) {
+                        const presence = parsePresence(body.presence);
+                        if (presence !== null) {
+                            target.presence = presence;
+                        }
+                    }
+                    return true;
+                }
+                if (!db.settings.can_delete && !isAdmin) {
+                    return noSave(false);
+                }
+                removeSubtree(db, target.uuid);
+                return true;
+            });
+            if (status === null) {
+                return sendError(res, 401, 'Invalid access key');
             }
-            if (!db.settings.can_edit && !isAdmin) {
-                return send(res, 200, { status: false });
-            }
-            const body = await readBody(req);
-            let text = String(body.comment ?? target.comment).trim();
-            if (text.length === 0) {
-                return send(res, 200, { status: false });
-            }
-            if (db.settings.is_filter) {
-                text = filterBadWords(text);
-            }
-            target.comment = text;
-            if (body.presence !== null && body.presence !== undefined) {
-                target.presence = Boolean(body.presence);
-            }
-            await saveDB(db);
-            return send(res, 200, { status: true });
-        }
-
-        if (req.method === 'DELETE') {
-            if (!target) {
-                return send(res, 200, { status: false });
-            }
-            if (!db.settings.can_delete && !isAdmin) {
-                return send(res, 200, { status: false });
-            }
-            removeSubtree(db, target.uuid);
-            await saveDB(db);
-            return send(res, 200, { status: true });
+            return send(res, 200, { status });
         }
 
         return sendError(res, 405, 'Method not allowed');
     } catch (err) {
-        return sendError(res, 500, err.message);
+        return fail(res, err);
     }
 };

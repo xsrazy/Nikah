@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { loadDB, saveDB, getAuth, send, sendError, readBody, formatDate } = require('../_lib');
+const { loadDB, withDB, getAuth, send, sendError, fail, readBody, formatDate } = require('../_lib');
 
 const toGuest = (g) => ({
     id: g.id,
@@ -12,13 +12,12 @@ const toGuest = (g) => ({
 // POST /api/guest {name} -> 201 { id, name, created_at }
 module.exports = async (req, res) => {
     try {
-        const db = await loadDB();
-        const auth = getAuth(req, db);
-        if (!auth || !auth.admin) {
-            return sendError(res, 401, 'Unauthorized');
-        }
-
         if (req.method === 'GET') {
+            const db = await loadDB();
+            const auth = getAuth(req, db);
+            if (!auth || !auth.admin) {
+                return sendError(res, 401, 'Unauthorized');
+            }
             const guests = [...db.guests]
                 .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
                 .map(toGuest);
@@ -34,18 +33,27 @@ module.exports = async (req, res) => {
             if (name.length > 100) {
                 return sendError(res, 400, 'Nama tamu terlalu panjang');
             }
-            const guest = {
-                id: crypto.randomUUID(),
-                name,
-                created_at: new Date().toISOString(),
-            };
-            db.guests.push(guest);
-            await saveDB(db);
+            const guest = await withDB(async (db) => {
+                const auth = getAuth(req, db);
+                if (!auth || !auth.admin) {
+                    return null;
+                }
+                const g = {
+                    id: crypto.randomUUID(),
+                    name,
+                    created_at: new Date().toISOString(),
+                };
+                db.guests.push(g);
+                return g;
+            });
+            if (!guest) {
+                return sendError(res, 401, 'Unauthorized');
+            }
             return send(res, 201, toGuest(guest), 201);
         }
 
         return sendError(res, 405, 'Method not allowed');
     } catch (err) {
-        return sendError(res, 500, err.message);
+        return fail(res, err);
     }
 };

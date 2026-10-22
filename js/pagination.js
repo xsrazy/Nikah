@@ -39,10 +39,14 @@ export const pagination = (() => {
         button.innerHTML = `<div class="spinner-border spinner-border-sm my-0 mx-1 p-0" style="height: 0.8rem; width: 0.8rem;"></div>`;
 
         const process = async () => {
-            await comment.comment();
-
-            button.disabled = false;
-            button.innerHTML = tmp;
+            try {
+                await comment.comment();
+            } finally {
+                // Always restore the button (audit fix): a failed fetch
+                // used to leave it disabled with a spinner forever.
+                button.disabled = false;
+                button.innerHTML = tmp;
+            }
 
             comment.scroll();
         };
@@ -101,6 +105,25 @@ export const pagination = (() => {
         enablePagination();
     };
 
+    // Step back one page after landing on an empty page past page one
+    // (audit fix): an exactly-full last page is indistinguishable from
+    // "more pages exist" until the next page comes back empty.
+    const stepBack = async () => {
+        if (pageNow <= 0) {
+            return;
+        }
+
+        pageNow -= perPage;
+        disabledNext();
+
+        const pageEl = document.getElementById('page');
+        if (pageEl) {
+            pageEl.innerText = Math.max(1, parseInt(pageEl.innerText) - 1);
+        }
+
+        await comment.comment();
+    };
+
     const previous = async (button) => {
         disabledPrevious();
 
@@ -136,6 +159,7 @@ export const pagination = (() => {
         getNext,
         reset,
         setResultData,
+        stepBack,
         previous,
         next,
     };

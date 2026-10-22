@@ -25,43 +25,47 @@ export const like = (() => {
 
         button.disabled = true;
 
-        if (likes.has(id)) {
-            await request(HTTP_PATCH, '/api/comment/' + likes.get(id))
+        // The button and counters are restored in a finally block (audit
+        // fix): a failed request used to leave the button disabled forever.
+        try {
+            if (likes.has(id)) {
+                await request(HTTP_PATCH, '/api/comment/' + likes.get(id))
+                    .token(session.getToken())
+                    .send(dto.statusResponse)
+                    .then((res) => {
+                        if (res.data.status) {
+                            likes.unset(id);
+
+                            heart.classList.remove('fa-solid', 'text-danger');
+                            heart.classList.add('fa-regular');
+
+                            info.setAttribute('data-count-like', (parseInt(info.getAttribute('data-count-like')) - 1).toString());
+                        }
+                    });
+
+                return;
+            }
+
+            await request(HTTP_POST, '/api/comment/' + id)
                 .token(session.getToken())
-                .send(dto.statusResponse)
+                .send(dto.uuidResponse)
                 .then((res) => {
-                    if (res.data.status) {
-                        likes.unset(id);
+                    if (res.code == 201) {
+                        likes.set(id, res.data.uuid);
 
-                        heart.classList.remove('fa-solid', 'text-danger');
-                        heart.classList.add('fa-regular');
+                        heart.classList.remove('fa-regular');
+                        heart.classList.add('fa-solid', 'text-danger');
 
-                        info.setAttribute('data-count-like', (parseInt(info.getAttribute('data-count-like')) - 1).toString());
+                        info.setAttribute('data-count-like', (parseInt(info.getAttribute('data-count-like')) + 1).toString());
                     }
                 });
-
+        } catch {
+            // Already surfaced to the user by request.js.
+        } finally {
             info.innerText = info.getAttribute('data-count-like');
             button.disabled = false;
-
-            return;
+            button.removeAttribute('disabled');
         }
-
-        await request(HTTP_POST, '/api/comment/' + id)
-            .token(session.getToken())
-            .send(dto.uuidResponse)
-            .then((res) => {
-                if (res.code == 201) {
-                    likes.set(id, res.data.uuid);
-
-                    heart.classList.remove('fa-regular');
-                    heart.classList.add('fa-solid', 'text-danger');
-
-                    info.setAttribute('data-count-like', (parseInt(info.getAttribute('data-count-like')) + 1).toString());
-                }
-            });
-
-        info.innerText = info.getAttribute('data-count-like');
-        button.disabled = false;
     };
 
     /**
@@ -135,8 +139,11 @@ export const like = (() => {
             }
             animation(div);
             div.setAttribute('data-liked', 'true');
-            await like(document.querySelector(`[onclick="like.like(this)"][data-uuid="${uuid}"]`));
-            div.setAttribute('data-liked', 'false');
+            try {
+                await like(document.querySelector(`[onclick="like.like(this)"][data-uuid="${uuid}"]`));
+            } finally {
+                div.setAttribute('data-liked', 'false');
+            }
         }
 
         div.setAttribute('data-tapTime', currentTime);
