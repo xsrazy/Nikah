@@ -1,8 +1,10 @@
-# Undangan Pernikahan Usra & Siapa
+# Undangan Pernikahan Usra & Zee
 
-Website undangan pernikahan digital pribadi: **Usra & Siapa**, Sabtu, 03 Februari 2032.
+Website undangan pernikahan digital pribadi: **Usra & Zee**, Senin, 17 Januari 2050.
 
 Live: https://nikah.xsrazy.web.id
+
+![Usra & Zee, Senin 17 Januari 2050 di Jam Gadang, Bukittinggi](assets/images/og-image.jpg)
 
 > **Proyek ini adalah modifikasi** dari template undangan open source [dewanakl/undangan](https://github.com/dewanakl/undangan) (MIT). Perubahan utamanya ada di backend: API bawaan template diganti backend sendiri. Daftar lengkap perubahannya ada di bagian [Modifikasi](#modifikasi-dari-template-asli).
 
@@ -21,6 +23,7 @@ Dibangun dari template undangan open source [dewanakl/undangan](https://github.c
 - Tombol bagikan ke WhatsApp, Telegram, Facebook, dan X, plus salin link
 - Dashboard admin: statistik, moderasi komentar, ganti nama/password, regenerasi access key, unduh CSV
 - Generator link tamu di dashboard: buat link personal `?to=Nama`, kirim langsung via WhatsApp, dan kelola daftar tamu tersimpan
+- SEO lengkap: meta description, Open Graph dan Twitter card dengan gambar OG adat Minangkabau, JSON-LD Event, favicon bulat dari kartun mempelai, robots.txt dan sitemap.xml
 
 ## Arsitektur
 
@@ -67,7 +70,8 @@ Dibangun dari template undangan open source [dewanakl/undangan](https://github.c
 - **Logo pembayaran dilokalkan** (SeaBank dan DANA, file SVG di `assets/images/`)
 - **Perbaikan loader**: kesalahan memuat satu gambar tidak lagi menghentikan seluruh proses loading
 - **URL bersih**: dashboard dapat dibuka di `/dashboard` tanpa akhiran `.html` (cleanUrls)
-- **Personalisasi**: nama Usra & Siapa, kartun pengantin adat Minangkabau, musik River Flows in You, venue Monas Jakarta
+- **Rebrand penuh**: seluruh jejak penulis template dihapus dari website, layar loading dihapus, dashboard pindah ke `/dashboard`, potret mempelai diganti dari karya kartun yang sama dengan gambar OG, background section Home diganti pemandangan Rumah Gadang dan Jam Gadang
+- **Personalisasi**: nama Usra & Zee, kartun pengantin adat Minangkabau, musik River Flows in You, venue Jam Gadang, Bukittinggi
 
 ## Kredit
 
